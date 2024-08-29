@@ -13,10 +13,197 @@ import {useFrame , useThree} from '@react-three/fiber'
 import {a} from '@react-spring/three'
 import islandScene from "../assets/3d/island.glb";
 
-const Island = (props) => {
-  const islandRef = useRef()
-  const { nodes, materials } = useGLTF(islandScene)
-  // const { actions } = useAnimations(animations)
+const Island = ({isRotating , setIsRotating,setCurrentStage, ...props}) => {
+  const islandRef = useRef();
+  // Get access to the Three.js renderer and viewport
+  const { gl, viewport } = useThree();
+  const { nodes, materials } = useGLTF(islandScene);
+
+  // Use a ref for the last mouse x position
+  const lastX = useRef(0);
+  // Use a ref for rotation speed
+  const rotationSpeed = useRef(0);
+  // Define a damping factor to control rotation damping
+  const dampingFactor = 0.95;
+
+
+    // Handle pointer (mouse or touch) down event
+    const handlePointerDown = (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      setIsRotating(true);
+  
+      // Calculate the clientX based on whether it's a touch event or a mouse event
+      const clientX = event.touches ? event.touches[0].clientX : event.clientX;
+  
+      // Store the current clientX position for reference
+      lastX.current = clientX;
+    };
+  
+    // Handle pointer (mouse or touch) up event
+    const handlePointerUp = (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      setIsRotating(false);
+    };
+  
+    // Handle pointer (mouse or touch) move event
+    const handlePointerMove = (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      if (isRotating) {
+        // If rotation is enabled, calculate the change in clientX position
+        const clientX = event.touches ? event.touches[0].clientX : event.clientX;
+  
+        // calculate the change in the horizontal position of the mouse cursor or touch input,
+        // relative to the viewport's width
+        const delta = (clientX - lastX.current) / viewport.width;
+  
+        // Update the island's rotation based on the mouse/touch movement
+        islandRef.current.rotation.y += delta * 0.01 * Math.PI;
+  
+        // Update the reference for the last clientX position
+        lastX.current = clientX;
+  
+        // Update the rotation speed
+        rotationSpeed.current = delta * 0.01 * Math.PI;
+      }
+    };
+  
+    // Handle keydown events
+    const handleKeyDown = (event) => {
+      if (event.key === "ArrowLeft") {
+        if (!isRotating) setIsRotating(true);
+  
+        islandRef.current.rotation.y += 0.005 * Math.PI;
+        rotationSpeed.current = 0.007;
+      } else if (event.key === "ArrowRight") {
+        if (!isRotating) setIsRotating(true);
+  
+        islandRef.current.rotation.y -= 0.005 * Math.PI;
+        rotationSpeed.current = -0.007;
+      }
+    };
+  
+    // Handle keyup events
+    const handleKeyUp = (event) => {
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        setIsRotating(false);
+      }
+    };
+  
+    // Touch events for mobile devices
+    const handleTouchStart = (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      setIsRotating(true);
+    
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      lastX.current = clientX;
+    }
+    
+    const handleTouchEnd = (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      setIsRotating(false);
+    }
+    
+    const handleTouchMove = (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+    
+      if (isRotating) {
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const delta = (clientX - lastX.current) / viewport.width;
+    
+        islandRef.current.rotation.y += delta * 0.01 * Math.PI;
+        lastX.current = clientX;
+        rotationSpeed.current = delta * 0.01 * Math.PI;
+      }
+    }
+  
+
+    useEffect(() => {
+      // Add event listeners for pointer and keyboard events
+      const canvas = gl.domElement;
+      canvas.addEventListener("pointerdown", handlePointerDown);
+      canvas.addEventListener("pointerup", handlePointerUp);
+      canvas.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("keydown", handleKeyDown);
+      window.addEventListener("keyup", handleKeyUp);
+      canvas.addEventListener("touchstart", handleTouchStart);
+      canvas.addEventListener("touchend", handleTouchEnd);
+      canvas.addEventListener("touchmove", handleTouchMove);
+  
+      // Remove event listeners when component unmounts
+      return () => {
+        canvas.removeEventListener("pointerdown", handlePointerDown);
+        canvas.removeEventListener("pointerup", handlePointerUp);
+        canvas.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("keydown", handleKeyDown);
+        window.removeEventListener("keyup", handleKeyUp);
+        canvas.removeEventListener("touchstart", handleTouchStart);
+        canvas.removeEventListener("touchend", handleTouchEnd);
+        canvas.removeEventListener("touchmove", handleTouchMove);
+      };
+    }, [gl, handlePointerDown, handlePointerUp, handlePointerMove]);
+  
+    // This function is called on each frame update
+    useFrame(() => {
+      // If not rotating, apply damping to slow down the rotation (smoothly)
+      if (!isRotating) {
+        // Apply damping factor
+        rotationSpeed.current *= dampingFactor;
+  
+        // Stop rotation when speed is very small
+        if (Math.abs(rotationSpeed.current) < 0.001) {
+          rotationSpeed.current = 0;
+        }
+  
+        islandRef.current.rotation.y += rotationSpeed.current;
+      } else {
+        // When rotating, determine the current stage based on island's orientation
+        const rotation = islandRef.current.rotation.y;
+  
+        /**
+         * Normalize the rotation value to ensure it stays within the range [0, 2 * Math.PI].
+         * The goal is to ensure that the rotation value remains within a specific range to
+         * prevent potential issues with very large or negative rotation values.
+         *  Here's a step-by-step explanation of what this code does:
+         *  1. rotation % (2 * Math.PI) calculates the remainder of the rotation value when divided
+         *     by 2 * Math.PI. This essentially wraps the rotation value around once it reaches a
+         *     full circle (360 degrees) so that it stays within the range of 0 to 2 * Math.PI.
+         *  2. (rotation % (2 * Math.PI)) + 2 * Math.PI adds 2 * Math.PI to the result from step 1.
+         *     This is done to ensure that the value remains positive and within the range of
+         *     0 to 2 * Math.PI even if it was negative after the modulo operation in step 1.
+         *  3. Finally, ((rotation % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI) applies another
+         *     modulo operation to the value obtained in step 2. This step guarantees that the value
+         *     always stays within the range of 0 to 2 * Math.PI, which is equivalent to a full
+         *     circle in radians.
+         */
+        const normalizedRotation =
+          ((rotation % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  
+        // Set the current stage based on the island's orientation
+        switch (true) {
+          case normalizedRotation >= 5.45 && normalizedRotation <= 5.85:
+            setCurrentStage(4);
+            break;
+          case normalizedRotation >= 0.85 && normalizedRotation <= 1.3:
+            setCurrentStage(3);
+            break;
+          case normalizedRotation >= 2.4 && normalizedRotation <= 2.6:
+            setCurrentStage(2);
+            break;
+          case normalizedRotation >= 4.25 && normalizedRotation <= 4.75:
+            setCurrentStage(1);
+            break;
+          default:
+            setCurrentStage(null);
+        }
+      }
+    });
+
   return (
     <a.group ref={islandRef} {...props}>
       <group name="Sketchfab_Scene">
@@ -30,7 +217,7 @@ const Island = (props) => {
                 <group name="pPyramid1" position={[-2.312, -162.744, -46.6]}>
                   <mesh
                     name="pPyramid1_lambert1_0"
-                    
+                    castShadow receiveShadow 
                     
                     geometry={nodes.pPyramid1_lambert1_0.geometry}
                     material={materials.lambert1}
@@ -39,7 +226,7 @@ const Island = (props) => {
                 <group name="pSphere1" position={[-2.312, -162.744, -46.6]}>
                   <mesh
                     name="pSphere1_lambert1_0"
-                    
+                    castShadow receiveShadow 
                     
                     geometry={nodes.pSphere1_lambert1_0.geometry}
                     material={materials.lambert1}
@@ -48,7 +235,7 @@ const Island = (props) => {
                 <group name="pDisc1" position={[-2.312, -162.744, -46.6]}>
                   <mesh
                     name="pDisc1_lambert1_0"
-                    
+                    castShadow receiveShadow 
                     
                     geometry={nodes.pDisc1_lambert1_0.geometry}
                     material={materials.lambert1}
@@ -57,7 +244,7 @@ const Island = (props) => {
                 <group name="pPlane5" position={[-2.312, -162.744, -46.6]}>
                   <mesh
                     name="pPlane5_lambert1_0"
-                    
+                    castShadow receiveShadow 
                     
                     geometry={nodes.pPlane5_lambert1_0.geometry}
                     material={materials.lambert1}
@@ -66,7 +253,7 @@ const Island = (props) => {
                 <group name="pTorus1" position={[-2.312, -162.744, -46.6]}>
                   <mesh
                     name="pTorus1_lambert1_0"
-                    
+                    castShadow receiveShadow 
                     
                     geometry={nodes.pTorus1_lambert1_0.geometry}
                     material={materials.lambert1}
@@ -75,7 +262,7 @@ const Island = (props) => {
                 <group name="pCone1" position={[-2.312, -162.744, -46.6]}>
                   <mesh
                     name="pCone1_lambert1_0"
-                    
+                    castShadow receiveShadow 
                     
                     geometry={nodes.pCone1_lambert1_0.geometry}
                     material={materials.lambert1}
@@ -84,7 +271,7 @@ const Island = (props) => {
                 <group name="pDisc2" position={[-2.312, -162.744, -46.6]}>
                   <mesh
                     name="pDisc2_lambert1_0"
-                    
+                    castShadow receiveShadow 
                     
                     geometry={nodes.pDisc2_lambert1_0.geometry}
                     material={materials.lambert1}
@@ -93,7 +280,7 @@ const Island = (props) => {
                 <group name="pCube133" position={[-2.312, -162.744, -46.6]}>
                   <mesh
                     name="pCube133_lambert1_0"
-                    
+                    castShadow receiveShadow 
                     
                     geometry={nodes.pCube133_lambert1_0.geometry}
                     material={materials.lambert1}
@@ -108,7 +295,7 @@ const Island = (props) => {
                   <group name="polySurface641" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface641_house_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface641_house_0.geometry}
                       material={materials.house}
@@ -120,7 +307,7 @@ const Island = (props) => {
                   <group name="polySurface645" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface645_house_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface645_house_0.geometry}
                       material={materials.house}
@@ -129,7 +316,7 @@ const Island = (props) => {
                   <group name="polySurface646" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface646_house_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface646_house_0.geometry}
                       material={materials.house}
@@ -140,7 +327,7 @@ const Island = (props) => {
                   <group name="polySurface649" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface649_house_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface649_house_0.geometry}
                       material={materials.house}
@@ -154,7 +341,7 @@ const Island = (props) => {
                   <group name="polySurface656" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface656_house_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface656_house_0.geometry}
                       material={materials.house}
@@ -166,7 +353,7 @@ const Island = (props) => {
                   <group name="polySurface660" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface660_house_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface660_house_0.geometry}
                       material={materials.house}
@@ -175,7 +362,7 @@ const Island = (props) => {
                   <group name="polySurface661" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface661_house_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface661_house_0.geometry}
                       material={materials.house}
@@ -186,7 +373,7 @@ const Island = (props) => {
                   <group name="polySurface664" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface664_house_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface664_house_0.geometry}
                       material={materials.house}
@@ -195,7 +382,7 @@ const Island = (props) => {
                   <group name="polySurface692" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface692_house_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface692_house_0.geometry}
                       material={materials.house}
@@ -206,7 +393,7 @@ const Island = (props) => {
                   <group name="polySurface336" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface336_objects_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface336_objects_0.geometry}
                       material={materials.objects}
@@ -217,7 +404,7 @@ const Island = (props) => {
                   <group name="polySurface432" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface432_lambert3_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface432_lambert3_0.geometry}
                       material={materials.lambert3}
@@ -226,7 +413,7 @@ const Island = (props) => {
                   <group name="polySurface575" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface575_lambert3_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface575_lambert3_0.geometry}
                       material={materials.lambert3}
@@ -236,7 +423,7 @@ const Island = (props) => {
                 <group name="polySurface227" position={[0.141, -122.509, -114.455]}>
                   <mesh
                     name="polySurface227_aiStandardSurface16_0"
-                    
+                    castShadow receiveShadow 
                     
                     geometry={nodes.polySurface227_aiStandardSurface16_0.geometry}
                     material={materials.aiStandardSurface16}
@@ -245,7 +432,7 @@ const Island = (props) => {
                 <group name="polySurface615" position={[-2.312, -162.753, -46.6]}>
                   <mesh
                     name="polySurface615_aiStandardSurface11_0"
-                    
+                    castShadow receiveShadow 
                     
                     geometry={nodes.polySurface615_aiStandardSurface11_0.geometry}
                     material={materials.aiStandardSurface11}
@@ -254,7 +441,7 @@ const Island = (props) => {
                 <group name="pPlane6" position={[-2.312, -162.744, -46.6]}>
                   <mesh
                     name="pPlane6_lambert1_0"
-                    
+                    castShadow receiveShadow 
                     
                     geometry={nodes.pPlane6_lambert1_0.geometry}
                     material={materials.lambert1}
@@ -264,7 +451,7 @@ const Island = (props) => {
                   <group name="polySurface820" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface820_aiStandardSurface10_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface820_aiStandardSurface10_0.geometry}
                       material={materials.aiStandardSurface10}
@@ -274,7 +461,7 @@ const Island = (props) => {
                 <group name="pTorus2" position={[-2.312, -162.744, -46.6]}>
                   <mesh
                     name="pTorus2_lambert1_0"
-                    
+                    castShadow receiveShadow 
                     
                     geometry={nodes.pTorus2_lambert1_0.geometry}
                     material={materials.lambert1}
@@ -284,7 +471,7 @@ const Island = (props) => {
                   <group name="polySurface884" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface884_aiStandardSurface9_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface884_aiStandardSurface9_0.geometry}
                       material={materials.aiStandardSurface9}
@@ -293,7 +480,7 @@ const Island = (props) => {
                   <group name="polySurface885" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface885_aiStandardSurface9_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface885_aiStandardSurface9_0.geometry}
                       material={materials.aiStandardSurface9}
@@ -302,7 +489,7 @@ const Island = (props) => {
                   <group name="polySurface886" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface886_aiStandardSurface9_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface886_aiStandardSurface9_0.geometry}
                       material={materials.aiStandardSurface9}
@@ -311,7 +498,7 @@ const Island = (props) => {
                   <group name="polySurface887" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface887_aiStandardSurface9_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface887_aiStandardSurface9_0.geometry}
                       material={materials.aiStandardSurface9}
@@ -320,7 +507,7 @@ const Island = (props) => {
                   <group name="polySurface888" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface888_aiStandardSurface9_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface888_aiStandardSurface9_0.geometry}
                       material={materials.aiStandardSurface9}
@@ -329,7 +516,7 @@ const Island = (props) => {
                   <group name="polySurface889" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface889_aiStandardSurface9_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface889_aiStandardSurface9_0.geometry}
                       material={materials.aiStandardSurface9}
@@ -338,7 +525,7 @@ const Island = (props) => {
                   <group name="polySurface890" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface890_aiStandardSurface9_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface890_aiStandardSurface9_0.geometry}
                       material={materials.aiStandardSurface9}
@@ -347,7 +534,7 @@ const Island = (props) => {
                   <group name="polySurface891" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface891_aiStandardSurface9_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface891_aiStandardSurface9_0.geometry}
                       material={materials.aiStandardSurface9}
@@ -356,7 +543,7 @@ const Island = (props) => {
                   <group name="polySurface892" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface892_aiStandardSurface9_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface892_aiStandardSurface9_0.geometry}
                       material={materials.aiStandardSurface9}
@@ -365,7 +552,7 @@ const Island = (props) => {
                   <group name="polySurface894" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface894_aiStandardSurface9_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface894_aiStandardSurface9_0.geometry}
                       material={materials.aiStandardSurface9}
@@ -374,7 +561,7 @@ const Island = (props) => {
                   <group name="polySurface895" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface895_aiStandardSurface9_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface895_aiStandardSurface9_0.geometry}
                       material={materials.aiStandardSurface9}
@@ -383,7 +570,7 @@ const Island = (props) => {
                   <group name="polySurface896" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface896_aiStandardSurface9_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface896_aiStandardSurface9_0.geometry}
                       material={materials.aiStandardSurface9}
@@ -392,7 +579,7 @@ const Island = (props) => {
                   <group name="polySurface897" position={[-2.312, -162.744, -46.6]}>
                     <mesh
                       name="polySurface897_aiStandardSurface9_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface897_aiStandardSurface9_0.geometry}
                       material={materials.aiStandardSurface9}
@@ -403,7 +590,7 @@ const Island = (props) => {
                   <group name="polySurface1025">
                     <mesh
                       name="polySurface1025_aiStandardSurface10_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface1025_aiStandardSurface10_0.geometry}
                       material={materials.aiStandardSurface10}
@@ -412,7 +599,7 @@ const Island = (props) => {
                   <group name="polySurface1030">
                     <mesh
                       name="polySurface1030_aiStandardSurface10_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface1030_aiStandardSurface10_0.geometry}
                       material={materials.aiStandardSurface10}
@@ -421,7 +608,7 @@ const Island = (props) => {
                   <group name="polySurface1031">
                     <mesh
                       name="polySurface1031_aiStandardSurface10_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface1031_aiStandardSurface10_0.geometry}
                       material={materials.aiStandardSurface10}
@@ -430,7 +617,7 @@ const Island = (props) => {
                   <group name="polySurface1032">
                     <mesh
                       name="polySurface1032_aiStandardSurface10_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface1032_aiStandardSurface10_0.geometry}
                       material={materials.aiStandardSurface10}
@@ -439,7 +626,7 @@ const Island = (props) => {
                   <group name="polySurface1033">
                     <mesh
                       name="polySurface1033_aiStandardSurface10_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface1033_aiStandardSurface10_0.geometry}
                       material={materials.aiStandardSurface10}
@@ -448,7 +635,7 @@ const Island = (props) => {
                   <group name="polySurface1034">
                     <mesh
                       name="polySurface1034_aiStandardSurface10_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface1034_aiStandardSurface10_0.geometry}
                       material={materials.aiStandardSurface10}
@@ -457,7 +644,7 @@ const Island = (props) => {
                   <group name="polySurface1035">
                     <mesh
                       name="polySurface1035_aiStandardSurface10_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface1035_aiStandardSurface10_0.geometry}
                       material={materials.aiStandardSurface10}
@@ -468,7 +655,7 @@ const Island = (props) => {
                   <group name="polySurface920">
                     <mesh
                       name="polySurface920_aiStandardSurface13_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface920_aiStandardSurface13_0.geometry}
                       material={materials.aiStandardSurface13}
@@ -477,7 +664,7 @@ const Island = (props) => {
                   <group name="polySurface921">
                     <mesh
                       name="polySurface921_aiStandardSurface13_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface921_aiStandardSurface13_0.geometry}
                       material={materials.aiStandardSurface13}
@@ -486,7 +673,7 @@ const Island = (props) => {
                   <group name="polySurface922">
                     <mesh
                       name="polySurface922_aiStandardSurface13_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface922_aiStandardSurface13_0.geometry}
                       material={materials.aiStandardSurface13}
@@ -495,7 +682,7 @@ const Island = (props) => {
                   <group name="polySurface936">
                     <mesh
                       name="polySurface936_aiStandardSurface13_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface936_aiStandardSurface13_0.geometry}
                       material={materials.aiStandardSurface13}
@@ -504,7 +691,7 @@ const Island = (props) => {
                   <group name="polySurface950">
                     <mesh
                       name="polySurface950_aiStandardSurface13_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface950_aiStandardSurface13_0.geometry}
                       material={materials.aiStandardSurface13}
@@ -513,7 +700,7 @@ const Island = (props) => {
                   <group name="polySurface958">
                     <mesh
                       name="polySurface958_aiStandardSurface13_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface958_aiStandardSurface13_0.geometry}
                       material={materials.aiStandardSurface13}
@@ -522,7 +709,7 @@ const Island = (props) => {
                   <group name="polySurface959">
                     <mesh
                       name="polySurface959_aiStandardSurface13_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface959_aiStandardSurface13_0.geometry}
                       material={materials.aiStandardSurface13}
@@ -531,7 +718,7 @@ const Island = (props) => {
                   <group name="polySurface969">
                     <mesh
                       name="polySurface969_aiStandardSurface13_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface969_aiStandardSurface13_0.geometry}
                       material={materials.aiStandardSurface13}
@@ -540,7 +727,7 @@ const Island = (props) => {
                   <group name="polySurface970">
                     <mesh
                       name="polySurface970_aiStandardSurface13_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface970_aiStandardSurface13_0.geometry}
                       material={materials.aiStandardSurface13}
@@ -551,7 +738,7 @@ const Island = (props) => {
                   <group name="polySurface1004">
                     <mesh
                       name="polySurface1004_aiStandardSurface9_0"
-                      
+                      castShadow receiveShadow 
                       
                       geometry={nodes.polySurface1004_aiStandardSurface9_0.geometry}
                       material={materials.aiStandardSurface9}
@@ -561,7 +748,7 @@ const Island = (props) => {
                 <group name="polySurface1062">
                   <mesh
                     name="polySurface1062_aiStandardSurface10_0"
-                    
+                    castShadow receiveShadow 
                     
                     geometry={nodes.polySurface1062_aiStandardSurface10_0.geometry}
                     material={materials.aiStandardSurface10}
@@ -570,7 +757,7 @@ const Island = (props) => {
                 <group name="polySurface1065">
                   <mesh
                     name="polySurface1065_aiStandardSurface13_0"
-                    
+                    castShadow receiveShadow 
                     
                     geometry={nodes.polySurface1065_aiStandardSurface13_0.geometry}
                     material={materials.aiStandardSurface13}
@@ -579,7 +766,7 @@ const Island = (props) => {
                 <group name="polySurface989">
                   <mesh
                     name="polySurface989_aiStandardSurface9_0"
-                    
+                    castShadow receiveShadow 
                     
                     geometry={nodes.polySurface989_aiStandardSurface9_0.geometry}
                     material={materials.aiStandardSurface9}
